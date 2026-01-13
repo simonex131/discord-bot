@@ -32,7 +32,7 @@ AUTO_CHANNELS = {
 }
 
 # --- REAKCJA ---
-REACTION = "👍"
+REACTION = "🤣"
 
 @bot.event
 async def on_ready():
@@ -53,3 +53,4 @@ async def on_message(message):
 
 # --- START ---
 bot.run(os.getenv("DISCORD_TOKEN"))
+

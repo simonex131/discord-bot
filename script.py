@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from flask import Flask
 from threading import Thread
+import os
 
 # --- KEEP ALIVE ---
 app = Flask('')
@@ -51,4 +52,4 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # --- START ---
-bot.run("")
+bot.run(os.getenv("DISCORD_TOKEN"))

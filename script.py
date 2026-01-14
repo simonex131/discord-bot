@@ -3,10 +3,10 @@ from discord import app_commands
 from discord.ext import commands
 from flask import Flask
 from threading import Thread
-import json
+import sqlite3
 import os
 
-# --- KEEP ALIVE ---
+# ================= KEEP ALIVE =================
 app = Flask('')
 
 @app.route('/')
@@ -17,39 +17,60 @@ def run():
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
-    t = Thread(target=run)
-    t.start()
+    Thread(target=run).start()
 
-# --- INTENTS ---
+# ================= BAZA DANYCH =================
+DB_FILE = "database.db"
+
+conn = sqlite3.connect(DB_FILE)
+c = conn.cursor()
+
+c.execute("""
+CREATE TABLE IF NOT EXISTS messages (
+    numer INTEGER PRIMARY KEY,
+    message_id INTEGER NOT NULL
+)
+""")
+conn.commit()
+conn.close()
+
+def get_next_number():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT MAX(numer) FROM messages")
+    result = c.fetchone()[0]
+    conn.close()
+    return (result or 0) + 1
+
+def save_message(numer, message_id):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT INTO messages (numer, message_id) VALUES (?, ?)", (numer, message_id))
+    conn.commit()
+    conn.close()
+
+def get_message_id(numer):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT message_id FROM messages WHERE numer = ?", (numer,))
+    result = c.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+# ================= DISCORD =================
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
-# --- AUTO REAKCJE ---
 AUTO_CHANNELS = {
-    1460369374908125258,  # kanał 1
-    1460369400648433806   # kanał 2
+    1460369374908125258,
+    1460369400648433806
 }
+
 REACTION = "🤣"
 
-# --- JSON do przechowywania numerów wiadomości ---
-JSON_FILE = "messages.json"
-
-if os.path.exists(JSON_FILE):
-    with open(JSON_FILE, "r") as f:
-        messages = json.load(f)
-        # Zamieniamy klucze na int
-        messages = {int(k): v for k, v in messages.items()}
-else:
-    messages = {}
-
-def save_messages():
-    with open(JSON_FILE, "w") as f:
-        json.dump(messages, f)
-
-# --- EVENTY ---
 @bot.event
 async def on_ready():
     await tree.sync()
@@ -59,67 +80,69 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot:
         return
+
     if message.channel.id in AUTO_CHANNELS:
         try:
             await message.add_reaction(REACTION)
-        except discord.Forbidden:
-            print("❌ Brak permisji do reakcji")
+        except:
+            pass
+
     await bot.process_commands(message)
 
-# --- FUNKCJE WSPÓLNE ---
-async def wyswietl_ping(ctx_or_interaction, ephemeral=False):
-    tresc = "Dostępne numery: 2,4,5,8,9,10,16,18,20,23,24,25,27,28,30,32,34,35,36,38,39,40,42,43,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,62,64,65,66,67,68,69,70,73,74,75,76,78,79,81,82,83,84,85,86,89,90,91,92,93,94,95,96,97,98"
-    if isinstance(ctx_or_interaction, discord.Interaction):
-        await ctx_or_interaction.response.send_message(tresc, ephemeral=ephemeral)
-    else:
-        await ctx_or_interaction.send(tresc)
+# ================= NUMERY =================
+NUMERY_TEXT = (
+    "Dostępne numery:\n"
+    "2,4,5,8,9,10,16,18,20,23,24,25,27,28,30,32,34,35,36,38,39,40,"
+    "42,43,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,62,64,"
+    "65,66,67,68,69,70,73,74,75,76,78,79,81,82,83,84,85,86,"
+    "89,90,91,92,93,94,95,96,97,98"
+)
 
-async def wyslij_nowa(channel, tresc):
-    numer = max(messages.keys(), default=0) + 1
-    wiadomosc = await channel.send(tresc)
-    messages[numer] = wiadomosc.id
-    save_messages()
-    return numer
+@tree.command(name="numery", description="Wyświetla listę numerów")
+async def numery_slash(interaction: discord.Interaction):
+    await interaction.response.send_message(NUMERY_TEXT, ephemeral=True)
 
-# --- PING ---
-@tree.command(name="ping", description="Wyświetla listę dostępnych numerów")
-async def ping(interaction: discord.Interaction):
-    await wyswietl_ping(interaction, ephemeral=True)
+@bot.command(name="numery")
+async def numery_prefix(ctx):
+    await ctx.send(NUMERY_TEXT)
 
-@bot.command()
-async def ping(ctx):
-    await wyswietl_ping(ctx)
-
-# --- WYSYŁANIE NOWEJ WIADOMOŚCI ---
-@tree.command(name="wyslij", description="Wyślij wiadomość i nadaj numer")
-@app_commands.describe(channel="Kanał", tresc="Treść wiadomości")
+# ================= WYSYŁANIE =================
+@tree.command(name="wyslij", description="Wyślij wiadomość z numerem")
+@app_commands.describe(channel="Kanał", tresc="Treść")
 async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel, tresc: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
-    numer = await wyslij_nowa(channel, tresc)
-    await interaction.response.send_message(f"Wysłano wiadomość! Numer: {numer}", ephemeral=True)
 
-# --- AKTUALIZACJA WIADOMOŚCI PO NUMERZE ---
-@tree.command(name="update", description="Edytuj wiadomość bota po numerze")
-@app_commands.describe(numer="Numer wiadomości nadany przez bota", nowa_tresc="Nowa treść")
+    numer = get_next_number()
+    msg = await channel.send(tresc)
+    save_message(numer, msg.id)
+
+    await interaction.response.send_message(
+        f"Wysłano wiadomość\nNumer: **{numer}**",
+        ephemeral=True
+    )
+
+# ================= UPDATE =================
+@tree.command(name="update", description="Edytuj wiadomość po numerze")
+@app_commands.describe(numer="Numer wiadomości", nowa_tresc="Nowa treść")
 async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
-    message_id = messages.get(numer)
-    if not message_id:
-        await interaction.response.send_message("Nie znaleziono wiadomości o tym numerze ❌", ephemeral=True)
-        return
-    channel = interaction.channel
-    try:
-        wiadomosc = await channel.fetch_message(message_id)
-        await wiadomosc.edit(content=nowa_tresc)
-        await interaction.response.send_message("Wiadomość zaktualizowana ✅", ephemeral=True)
-    except discord.NotFound:
-        await interaction.response.send_message("Nie znaleziono wiadomości w kanale 😢", ephemeral=True)
 
-# --- START ---
+    message_id = get_message_id(numer)
+    if not message_id:
+        await interaction.response.send_message("Nie ma takiego numeru ❌", ephemeral=True)
+        return
+
+    try:
+        msg = await interaction.channel.fetch_message(message_id)
+        await msg.edit(content=nowa_tresc)
+        await interaction.response.send_message("Zaktualizowano ✅", ephemeral=True)
+    except:
+        await interaction.response.send_message("Nie znaleziono wiadomości", ephemeral=True)
+
+# ================= START =================
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
-

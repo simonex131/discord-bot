@@ -116,10 +116,10 @@ async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel,
         return
 
     numer = get_next_number()
-tresc = tresc.replace("|", "\n")  # zamiana separatora na nowe linie
-msg = await channel.send(tresc)
-save_message(numer, msg.id, channel.id)
-await interaction.response.send_message(f"Wysłano wiadomość\nNumer: **{numer}**", ephemeral=True)
+    tresc = tresc.replace("|", "\n")  # zamiana separatora na nowe linie
+    msg = await channel.send(tresc)
+    save_message(numer, msg.id, channel.id)
+    await interaction.response.send_message(f"Wysłano wiadomość\nNumer: **{numer}**", ephemeral=True)
 
 # ------------------- UPDATE -------------------
 @tree.command(name="update", description="Edytuj wiadomość po numerze")
@@ -154,6 +154,7 @@ async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

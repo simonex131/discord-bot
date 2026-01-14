@@ -141,7 +141,10 @@ async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
 
     try:
         msg = await channel.fetch_message(message_id)
+# zamiana separatora "|" na nową linię
+        nowa_tresc = nowa_tresc.replace("|", "\n")
         await msg.edit(content=nowa_tresc)
+
         await interaction.response.send_message("Zaktualizowano ✅", ephemeral=True)
     except:
         await interaction.response.send_message("Nie znaleziono wiadomości ❌", ephemeral=True)
@@ -150,3 +153,4 @@ async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+

@@ -117,6 +117,8 @@ async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel,
 
     numer = get_next_number()
     msg = await channel.send(tresc)
+    nowa_tresc = nowa_tresc.replace("|", "\n")
+    await msg.edit(content=nowa_tresc)
     save_message(numer, msg.id, channel.id)
     await interaction.response.send_message(f"Wysłano wiadomość\nNumer: **{numer}**", ephemeral=True)
 
@@ -153,4 +155,5 @@ async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 

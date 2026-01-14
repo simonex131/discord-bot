@@ -3,10 +3,10 @@ from discord import app_commands
 from discord.ext import commands
 from flask import Flask
 from threading import Thread
-import sqlite3
+import psycopg2
 import os
 
-# ================= KEEP ALIVE =================
+# ------------------- KEEP ALIVE -------------------
 app = Flask('')
 
 @app.route('/')
@@ -19,45 +19,53 @@ def run():
 def keep_alive():
     Thread(target=run).start()
 
-# ================= BAZA DANYCH =================
-DB_FILE = "database.db"
+# ------------------- BAZA DANYCH -------------------
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-conn = sqlite3.connect(DB_FILE)
-c = conn.cursor()
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS messages (
-    numer INTEGER PRIMARY KEY,
-    message_id INTEGER NOT NULL
-)
-""")
-conn.commit()
-conn.close()
+def init_db():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            numer SERIAL PRIMARY KEY,
+            message_id BIGINT NOT NULL,
+            channel_id BIGINT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
 
 def get_next_number():
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT MAX(numer) FROM messages")
     result = c.fetchone()[0]
     conn.close()
     return (result or 0) + 1
 
-def save_message(numer, message_id):
-    conn = sqlite3.connect(DB_FILE)
+def save_message(numer, message_id, channel_id):
+    conn = get_conn()
     c = conn.cursor()
-    c.execute("INSERT INTO messages (numer, message_id) VALUES (?, ?)", (numer, message_id))
+    c.execute(
+        "INSERT INTO messages (numer, message_id, channel_id) VALUES (%s, %s, %s)",
+        (numer, message_id, channel_id)
+    )
     conn.commit()
     conn.close()
 
 def get_message_id(numer):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT message_id FROM messages WHERE numer = ?", (numer,))
+    c.execute("SELECT message_id, channel_id FROM messages WHERE numer = %s", (numer,))
     result = c.fetchone()
     conn.close()
-    return result[0] if result else None
+    return result if result else None
 
-# ================= DISCORD =================
+# ------------------- DISCORD -------------------
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -68,7 +76,6 @@ AUTO_CHANNELS = {
     1460369374908125258,
     1460369400648433806
 }
-
 REACTION = "🤣"
 
 @bot.event
@@ -80,16 +87,14 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot:
         return
-
     if message.channel.id in AUTO_CHANNELS:
         try:
             await message.add_reaction(REACTION)
         except:
             pass
-
     await bot.process_commands(message)
 
-# ================= NUMERY =================
+# ------------------- NUMERY -------------------
 NUMERY_TEXT = (
     "Dostępne numery:\n"
     "2,4,5,8,9,10,16,18,20,23,24,25,27,28,30,32,34,35,36,38,39,40,"
@@ -106,7 +111,7 @@ async def numery_slash(interaction: discord.Interaction):
 async def numery_prefix(ctx):
     await ctx.send(NUMERY_TEXT)
 
-# ================= WYSYŁANIE =================
+# ------------------- WYSYŁANIE -------------------
 @tree.command(name="wyslij", description="Wyślij wiadomość z numerem")
 @app_commands.describe(channel="Kanał", tresc="Treść")
 async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel, tresc: str):
@@ -116,14 +121,10 @@ async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel,
 
     numer = get_next_number()
     msg = await channel.send(tresc)
-    save_message(numer, msg.id)
+    save_message(numer, msg.id, channel.id)
+    await interaction.response.send_message(f"Wysłano wiadomość\nNumer: **{numer}**", ephemeral=True)
 
-    await interaction.response.send_message(
-        f"Wysłano wiadomość\nNumer: **{numer}**",
-        ephemeral=True
-    )
-
-# ================= UPDATE =================
+# ------------------- UPDATE -------------------
 @tree.command(name="update", description="Edytuj wiadomość po numerze")
 @app_commands.describe(numer="Numer wiadomości", nowa_tresc="Nowa treść")
 async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
@@ -131,18 +132,25 @@ async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
 
-    message_id = get_message_id(numer)
-    if not message_id:
+    result = get_message_id(numer)
+    if not result:
         await interaction.response.send_message("Nie ma takiego numeru ❌", ephemeral=True)
         return
 
+    message_id, channel_id = result
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        await interaction.response.send_message("Nie znaleziono kanału ❌", ephemeral=True)
+        return
+
     try:
-        msg = await interaction.channel.fetch_message(message_id)
+        msg = await channel.fetch_message(message_id)
         await msg.edit(content=nowa_tresc)
         await interaction.response.send_message("Zaktualizowano ✅", ephemeral=True)
     except:
-        await interaction.response.send_message("Nie znaleziono wiadomości", ephemeral=True)
+        await interaction.response.send_message("Nie znaleziono wiadomości ❌", ephemeral=True)
 
-# ================= START =================
+# ------------------- START -------------------
+init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))

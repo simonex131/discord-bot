@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from flask import Flask
 from threading import Thread
-import psycopg2
+import psycopg
 import os
 
 # ------------------- KEEP ALIVE -------------------
@@ -23,47 +23,43 @@ def keep_alive():
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 def get_conn():
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg.connect(DATABASE_URL)
 
 def init_db():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            numer SERIAL PRIMARY KEY,
-            message_id BIGINT NOT NULL,
-            channel_id BIGINT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    numer SERIAL PRIMARY KEY,
+                    message_id BIGINT NOT NULL,
+                    channel_id BIGINT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
 
 def get_next_number():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT MAX(numer) FROM messages")
-    result = c.fetchone()[0]
-    conn.close()
-    return (result or 0) + 1
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(numer) FROM messages")
+            result = cur.fetchone()[0]
+            return (result or 0) + 1
 
 def save_message(numer, message_id, channel_id):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO messages (numer, message_id, channel_id) VALUES (%s, %s, %s)",
-        (numer, message_id, channel_id)
-    )
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO messages (numer, message_id, channel_id) VALUES (%s, %s, %s)",
+                (numer, message_id, channel_id)
+            )
+            conn.commit()
 
 def get_message_id(numer):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT message_id, channel_id FROM messages WHERE numer = %s", (numer,))
-    result = c.fetchone()
-    conn.close()
-    return result if result else None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT message_id, channel_id FROM messages WHERE numer = %s", (numer,))
+            result = cur.fetchone()
+            return result if result else None
 
 # ------------------- DISCORD -------------------
 intents = discord.Intents.default()

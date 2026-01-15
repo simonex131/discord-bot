@@ -116,7 +116,7 @@ async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel,
         return
 
     numer = get_next_number()
-    tresc = tresc.replace("`", "\n")  # zamiana separatora na nowe linie
+    tresc = tresc.replace("^", "\n")  # zamiana separatora na nowe linie
     msg = await channel.send(tresc)
     save_message(numer, msg.id, channel.id)
     await interaction.response.send_message(f"Wysłano wiadomość\nNumer: **{numer}**", ephemeral=True)
@@ -143,7 +143,7 @@ async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
     try:
         msg = await channel.fetch_message(message_id)
 # zamiana separatora "|" na nową linię
-        nowa_tresc = nowa_tresc.replace("`", "\n")
+        nowa_tresc = nowa_tresc.replace("^", "\n")
         await msg.edit(content=nowa_tresc)
 
         await interaction.response.send_message("Zaktualizowano ✅", ephemeral=True)
@@ -154,6 +154,7 @@ async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

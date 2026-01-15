@@ -106,8 +106,7 @@ async def numery_slash(interaction: discord.Interaction):
 @bot.command(name="numery")
 async def numery_prefix(ctx):
     await ctx.send(NUMERY_TEXT)
-
-# ------------------- WYSYŁANIE -------------------
+#wysyłanie
 @tree.command(name="wyslij", description="Wyślij wiadomość z numerem")
 @app_commands.describe(channel="Kanał", tresc="Treść")
 async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel, tresc: str):
@@ -116,15 +115,24 @@ async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel,
         return
 
     numer = get_next_number()
-tresc = tresc or ""  # jeśli None → zamień na pusty string
-tresc = tresc.replace("|", "\n")  # zamiana separatora na Enter
 
-if len(tresc) > 2000:
-    tresc = tresc[:2000]  # przytnij do limitu Discord
+    # Jeśli brak treści → pusty string
+    tresc = tresc or ""  
 
-msg = await channel.send(tresc)
-save_message(numer, msg.id, channel.id)
-await interaction.response.send_message(f"Wysłano wiadomość\nNumer: **{numer}**", ephemeral=True)
+    # Zamiana separatora | na Enter
+    tresc = tresc.replace("|", "\n")  
+
+    # Przytnij do limitu Discord (2000 znaków)
+    if len(tresc) > 2000:
+        tresc = tresc[:2000]
+
+    msg = await channel.send(tresc)
+    save_message(numer, msg.id, channel.id)
+
+    await interaction.response.send_message(
+        f"Wysłano wiadomość\nNumer: **{numer}**", 
+        ephemeral=True
+    )
 
 
 # ------------------- UPDATE -------------------
@@ -160,6 +168,7 @@ async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

@@ -304,91 +304,81 @@ MAX_FIELD_LENGTH = 1024
     app_commands.Choice(name="Drużyny", value="teams")
 ])
 async def liga_table(interaction: discord.Interaction, view: app_commands.Choice[str]):
+    await interaction.response.defer(ephemeral=False)
+
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT user_id, races, points, wins, podiums, dnf, dns, avg_position, team 
-                FROM driver_stats 
-                ORDER BY points DESC
-            """)
+            # upewniamy się, że kolumna 'team' istnieje
+            cur.execute("ALTER TABLE driver_stats ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'N/A';")
+            cur.execute("SELECT * FROM driver_stats ORDER BY points DESC;")
             drivers = cur.fetchall()
 
     if not drivers:
-        await interaction.response.send_message("Brak danych o zawodnikach ❌", ephemeral=True)
+        await interaction.followup.send("Brak danych o zawodnikach ❌")
         return
 
     if view.value == "drivers":
         embed = discord.Embed(title="🏎️ Tabela Kierowców", color=discord.Color.blue())
         for d in drivers:
-            user_id, races, points, wins, podiums, dnf, dns, avg_pos, team = d
-
-            # Zamiana None na "N/A"
-            races = races if races is not None else "N/A"
-            points = points if points is not None else "N/A"
-            wins = wins if wins is not None else "N/A"
-            podiums = podiums if podiums is not None else "N/A"
-            dnf = dnf if dnf is not None else "N/A"
-            dns = dns if dns is not None else "N/A"
-            avg_pos = round(avg_pos,2) if avg_pos is not None else "N/A"
-            team = team if team is not None else "N/A"
-
-            # Pobranie użytkownika bezpośrednio z API
+            user_id, races, points, wins, podiums, dnf, dns, avg_pos, *rest = d
+            team = rest[0] if rest else "N/A"
             try:
                 member = await interaction.guild.fetch_member(user_id)
                 nick = member.display_name
-            except discord.NotFound:
-                nick = "Nieobecny"
+            except (discord.NotFound, discord.Forbidden):
+                nick = "N/A"
 
-            value = (f"Wyścigi: {races}, Punkty: {points}, Zwycięstwa: {wins}, "
-                     f"Podia: {podiums}, DNF: {dnf}, DNS: {dns}, Śr.pozycja: {avg_pos}, Drużyna: {team}")
+            value = (
+                f"Wyścigi: {races if races is not None else 'N/A'}, "
+                f"Punkty: {points if points is not None else 'N/A'}, "
+                f"Zwycięstwa: {wins if wins is not None else 'N/A'}, "
+                f"Podia: {podiums if podiums is not None else 'N/A'}, "
+                f"DNF: {dnf if dnf is not None else 'N/A'}, "
+                f"DNS: {dns if dns is not None else 'N/A'}, "
+                f"Śr.pozycja: {round(avg_pos,2) if avg_pos is not None else 'N/A'}, "
+                f"Drużyna: {team if team else 'N/A'}"
+            )
             embed.add_field(name=nick, value=value, inline=False)
 
-    else:  # widok drużyn
+    else:  # Drużyny
         embed = discord.Embed(title="🏁 Tabela Drużyn", color=discord.Color.green())
         teams = {}
 
         for d in drivers:
-            user_id, races, points, wins, podiums, dnf, dns, avg_pos, team_name = d
-
-            # Zamiana None na "N/A" dla drużyny i statystyk
-            team_name = team_name if team_name is not None else "N/A"
-            races = races if races is not None else "N/A"
-            points = points if points is not None else 0
-            dnf = dnf if dnf is not None else "N/A"
-            dns = dns if dns is not None else "N/A"
-
+            user_id, races, points, wins, podiums, dnf, dns, avg_pos, *rest = d
+            team = rest[0] if rest else "N/A"
+            if not team or team.upper() == "N/A":
+                team = "N/A"
             try:
                 member = await interaction.guild.fetch_member(user_id)
                 nick = member.display_name
-            except discord.NotFound:
-                nick = "Nieobecny"
+            except (discord.NotFound, discord.Forbidden):
+                nick = "N/A"
 
-            if team_name not in teams:
-                teams[team_name] = {"members": [], "total_points": 0}
+            if team not in teams:
+                teams[team] = {"members": [], "total_points": 0}
 
-            teams[team_name]["members"].append({
+            teams[team]["members"].append({
                 "nick": nick,
-                "points": points,
-                "races": races,
-                "dnf": dnf,
-                "dns": dns
+                "points": points if points is not None else 0,
+                "races": races if races is not None else 0,
+                "dnf": dnf if dnf is not None else 0,
+                "dns": dns if dns is not None else 0
             })
+            teams[team]["total_points"] += points if points is not None else 0
 
-            # sumujemy punkty tylko jeśli drużyna nie jest "N/A"
-            if team_name != "N/A" and isinstance(points,int):
-                teams[team_name]["total_points"] += points
-
-        # Sortowanie drużyn po sumie punktów malejąco, N/A zawsze na końcu
+        # Sortujemy drużyny po sumie punktów (N/A nie liczy się)
         sorted_teams = sorted(
-            [t for t in teams.items() if t[0] != "N/A"],
-            key=lambda x: x[1]["total_points"],
-            reverse=True
+            ((tname, tdata) for tname, tdata in teams.items() if tname != "N/A"),
+            key=lambda x: x[1]["total_points"], reverse=True
         )
+
+        # Dodajemy drużyny z N/A na koniec
         if "N/A" in teams:
             sorted_teams.append(("N/A", teams["N/A"]))
 
         for team_name, team_data in sorted_teams:
-            members = sorted(team_data["members"], key=lambda x: x["points"] if isinstance(x["points"],int) else 0, reverse=True)
+            members = sorted(team_data["members"], key=lambda x: x["points"], reverse=True)
             value = ""
             for i, m in enumerate(members):
                 trophy = " 🏆" if i == 0 else ""
@@ -400,11 +390,10 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
             if value:
                 embed.add_field(name=f"{team_name} ({team_data['total_points']} pkt)", value=value, inline=False)
 
-    await interaction.response.send_message(embed=embed)
-
+    await interaction.followup.send(embed=embed)
 
 # ----------------- /update_team -----------------
-@tree.command(name="update_team", description="Ustaw drużynę zawodnika")
+@tree.command(name="update_team", description="Ustaw drużynę zawodnika w DB")
 @app_commands.describe(member="Zawodnik", team="Nazwa drużyny")
 async def update_team(interaction: discord.Interaction, member: discord.Member, team: str):
     if not interaction.user.guild_permissions.administrator:
@@ -413,13 +402,13 @@ async def update_team(interaction: discord.Interaction, member: discord.Member, 
 
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # dodanie kolumny team jeśli nie istnieje
+            # dodaj kolumnę jeśli nie istnieje
+            cur.execute("ALTER TABLE driver_stats ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'N/A';")
+            # wstaw lub zaktualizuj team
             cur.execute("""
-            ALTER TABLE driver_stats
-            ADD COLUMN IF NOT EXISTS team TEXT;
-            """)
-            # aktualizacja drużyny w DB
-            cur.execute("UPDATE driver_stats SET team=%s WHERE user_id=%s", (team, member.id))
+                INSERT INTO driver_stats(user_id, team) VALUES (%s, %s)
+                ON CONFLICT(user_id) DO UPDATE SET team = EXCLUDED.team;
+            """, (member.id, team))
             conn.commit()
 
     await interaction.response.send_message(f"Ustawiono drużynę **{team}** dla {member.display_name} ✅", ephemeral=True)
@@ -467,6 +456,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

@@ -317,21 +317,40 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
         embed = discord.Embed(title="🏎️ Tabela Kierowców", color=discord.Color.blue())
         for d in drivers:
             user_id, races, points, wins, podiums, dnf, dns, avg_pos, team = d
+
+            # obsługa None → N/A
+            races = races if races is not None else "N/A"
+            points = points if points is not None else "N/A"
+            wins = wins if wins is not None else "N/A"
+            podiums = podiums if podiums is not None else "N/A"
+            dnf = dnf if dnf is not None else "N/A"
+            dns = dns if dns is not None else "N/A"
+            avg_pos = round(avg_pos,2) if avg_pos is not None else "N/A"
+            team = team if team is not None else "N/A"
+
             member = interaction.guild.get_member(user_id)
             nick = member.display_name if member else f"Nieobecny"
+
             value = (f"Wyścigi: {races}, Punkty: {points}, Zwycięstwa: {wins}, "
-                     f"Podia: {podiums}, DNF: {dnf}, DNS: {dns}, Śr.pozycja: {round(avg_pos,2)}, Drużyna: {team or 'Bez drużyny'}")
+                     f"Podia: {podiums}, DNF: {dnf}, DNS: {dns}, Śr.pozycja: {avg_pos}, Drużyna: {team}")
             embed.add_field(name=nick, value=value, inline=False)
 
-    else:  # teams view
+    else:  # widok drużyn
         embed = discord.Embed(title="🏁 Tabela Drużyn", color=discord.Color.green())
         teams = {}
 
         for d in drivers:
             user_id, races, points, wins, podiums, dnf, dns, avg_pos, team_name = d
+
+            # obsługa None → N/A
+            races = races if races is not None else "N/A"
+            points = points if points is not None else "N/A"
+            dnf = dnf if dnf is not None else "N/A"
+            dns = dns if dns is not None else "N/A"
+            team_name = team_name if team_name is not None else "Bez drużyny"
+
             member = interaction.guild.get_member(user_id)
             nick = member.display_name if member else f"Nieobecny"
-            team_name = team_name or "Bez drużyny"
 
             if team_name not in teams:
                 teams[team_name] = {"members": [], "total_points": 0}
@@ -343,13 +362,14 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
                 "dnf": dnf,
                 "dns": dns
             })
-            teams[team_name]["total_points"] += points
+            # tylko liczby sumujemy w total_points
+            teams[team_name]["total_points"] += points if isinstance(points,int) else 0
 
-        # Sortowanie drużyn po sumie punktów malejąco
+        # sortowanie drużyn po punktach malejąco
         sorted_teams = sorted(teams.items(), key=lambda x: x[1]["total_points"], reverse=True)
 
         for team_name, team_data in sorted_teams:
-            members = sorted(team_data["members"], key=lambda x: x["points"], reverse=True)
+            members = sorted(team_data["members"], key=lambda x: x["points"] if isinstance(x["points"],int) else 0, reverse=True)
             value = ""
             for i, m in enumerate(members):
                 trophy = " 🏆" if i == 0 else ""
@@ -421,6 +441,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

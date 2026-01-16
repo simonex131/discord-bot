@@ -306,7 +306,6 @@ MAX_FIELD_LENGTH = 1024
 async def liga_table(interaction: discord.Interaction, view: app_commands.Choice[str]):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # pobieramy wszystkie statystyki wraz z drużyną
             cur.execute("""
                 SELECT user_id, races, points, wins, podiums, dnf, dns, avg_position, team 
                 FROM driver_stats 
@@ -333,8 +332,12 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
             avg_pos = round(avg_pos,2) if avg_pos is not None else "N/A"
             team = team if team is not None else "N/A"
 
-            member = interaction.guild.get_member(user_id)
-            nick = member.display_name if member else "Nieobecny"
+            # Pobranie użytkownika bezpośrednio z API
+            try:
+                member = await interaction.guild.fetch_member(user_id)
+                nick = member.display_name
+            except discord.NotFound:
+                nick = "Nieobecny"
 
             value = (f"Wyścigi: {races}, Punkty: {points}, Zwycięstwa: {wins}, "
                      f"Podia: {podiums}, DNF: {dnf}, DNS: {dns}, Śr.pozycja: {avg_pos}, Drużyna: {team}")
@@ -354,8 +357,11 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
             dnf = dnf if dnf is not None else "N/A"
             dns = dns if dns is not None else "N/A"
 
-            member = interaction.guild.get_member(user_id)
-            nick = member.display_name if member else "Nieobecny"
+            try:
+                member = await interaction.guild.fetch_member(user_id)
+                nick = member.display_name
+            except discord.NotFound:
+                nick = "Nieobecny"
 
             if team_name not in teams:
                 teams[team_name] = {"members": [], "total_points": 0}
@@ -461,6 +467,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

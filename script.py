@@ -192,15 +192,22 @@ def update_server(races=0,dnf=0,dns=0,points=0,mvp=None,team=None):
 async def server_stats(interaction: discord.Interaction):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM server_stats WHERE id=1")
+            # SELECT w określonej kolejności, żeby liczby się zgadzały
+            cur.execute("""
+                SELECT races, total_dnf, total_dns, total_points, last_mvp, last_best_team
+                FROM server_stats
+                WHERE id=1
+            """)
             r = cur.fetchone()
+
     embed = discord.Embed(title="📊 Statystyki ligi")
-    embed.add_field(name="Wyścigi", value=r[1])
-    embed.add_field(name="DNF", value=r[2])
-    embed.add_field(name="DNS", value=r[3])
-    embed.add_field(name="Punkty łącznie", value=r[4])
-    embed.add_field(name="Ostatni MVP", value=f"<@{r[5]}>" if r[5] else "—")
-    embed.add_field(name="Najlepsza drużyna", value=r[6] or "—")
+    embed.add_field(name="Wyścigi", value=r[0])
+    embed.add_field(name="DNF", value=r[1])
+    embed.add_field(name="DNS", value=r[2])
+    embed.add_field(name="Punkty łącznie", value=r[3])
+    embed.add_field(name="Ostatni MVP", value=f"<@{r[4]}>" if r[4] else "—")
+    embed.add_field(name="Najlepsza drużyna", value=r[5] or "—")
+
     await interaction.response.send_message(embed=embed)
 
 @tree.command(name="update_server_stats", description="Aktualizuj statystyki serwera")
@@ -378,3 +385,4 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+

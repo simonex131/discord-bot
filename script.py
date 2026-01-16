@@ -67,6 +67,7 @@ def init_db():
 # ================= DISCORD =================
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True  # <-- to jest kluczowe
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
@@ -460,6 +461,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

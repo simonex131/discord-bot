@@ -289,7 +289,7 @@ async def update_driver(interaction: discord.Interaction,user:discord.Member,rac
     await interaction.response.send_message(f"Zaktualizowano staty **{user.display_name}** ✅", ephemeral=True)
 
 
-# ================= LIGA TABLE & UPDATE TEAM =================
+# ================= LIGA TABLE & UPDATE TEAM (team1) =================
 from discord import app_commands
 from discord.ext import commands
 import discord
@@ -304,85 +304,58 @@ MAX_FIELD_LENGTH = 1024
     app_commands.Choice(name="Drużyny", value="teams")
 ])
 async def liga_table(interaction: discord.Interaction, view: app_commands.Choice[str]):
-    await interaction.response.defer(ephemeral=False)
-
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # upewniamy się, że kolumna 'team' istnieje
-            cur.execute("ALTER TABLE driver_stats ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'N/A';")
-            cur.execute("SELECT * FROM driver_stats ORDER BY points DESC;")
+            cur.execute("SELECT user_id, races, points, wins, podiums, dnf, dns, avg_position, team1 FROM driver_stats ORDER BY points DESC")
             drivers = cur.fetchall()
 
     if not drivers:
-        await interaction.followup.send("Brak danych o zawodnikach ❌")
+        await interaction.response.send_message("Brak danych o zawodnikach ❌", ephemeral=True)
         return
 
     if view.value == "drivers":
         embed = discord.Embed(title="🏎️ Tabela Kierowców", color=discord.Color.blue())
-        for d in drivers:
-            user_id, races, points, wins, podiums, dnf, dns, avg_pos, *rest = d
-            team = rest[0] if rest else "N/A"
-            try:
-                member = await interaction.guild.fetch_member(user_id)
-                nick = member.display_name
-            except (discord.NotFound, discord.Forbidden):
-                nick = "N/A"
+        for i, d in enumerate(drivers, start=1):
+            user_id, races, points, wins, podiums, dnf, dns, avg_pos, team_name = d
+            member = interaction.guild.get_member(user_id)
+            nick = member.display_name if member else f"Nieobecny ({user_id})"
+            team_name = team_name if team_name and team_name != 'N/A' else 'N/A'
+            value = (f"Drużyna: {team_name}\n"
+                     f"Wyścigi: {races}, Punkty: {points}, Zwycięstwa: {wins}, "
+                     f"Podia: {podiums}, DNF: {dnf}, DNS: {dns}, Śr.pozycja: {round(avg_pos,2)}")
+            embed.add_field(name=f"{i}. {nick}", value=value, inline=False)
 
-            value = (
-                f"Wyścigi: {races if races is not None else 'N/A'}, "
-                f"Punkty: {points if points is not None else 'N/A'}, "
-                f"Zwycięstwa: {wins if wins is not None else 'N/A'}, "
-                f"Podia: {podiums if podiums is not None else 'N/A'}, "
-                f"DNF: {dnf if dnf is not None else 'N/A'}, "
-                f"DNS: {dns if dns is not None else 'N/A'}, "
-                f"Śr.pozycja: {round(avg_pos,2) if avg_pos is not None else 'N/A'}, "
-                f"Drużyna: {team if team else 'N/A'}"
-            )
-            embed.add_field(name=nick, value=value, inline=False)
-
-    else:  # Drużyny
+    else:  # teams view
         embed = discord.Embed(title="🏁 Tabela Drużyn", color=discord.Color.green())
         teams = {}
-
         for d in drivers:
-            user_id, races, points, wins, podiums, dnf, dns, avg_pos, *rest = d
-            team = rest[0] if rest else "N/A"
-            if not team or team.upper() == "N/A":
-                team = "N/A"
-            try:
-                member = await interaction.guild.fetch_member(user_id)
-                nick = member.display_name
-            except (discord.NotFound, discord.Forbidden):
-                nick = "N/A"
+            user_id, races, points, wins, podiums, dnf, dns, avg_pos, team_name = d
+            member = interaction.guild.get_member(user_id)
+            nick = member.display_name if member else f"Nieobecny ({user_id})"
+            team_name = team_name if team_name and team_name != 'N/A' else 'N/A'
 
-            if team not in teams:
-                teams[team] = {"members": [], "total_points": 0}
+            if team_name not in teams:
+                teams[team_name] = {"members": [], "total_points": 0}
 
-            teams[team]["members"].append({
+            teams[team_name]["members"].append({
                 "nick": nick,
-                "points": points if points is not None else 0,
-                "races": races if races is not None else 0,
-                "dnf": dnf if dnf is not None else 0,
-                "dns": dns if dns is not None else 0
+                "points": points,
+                "races": races,
+                "dnf": dnf,
+                "dns": dns
             })
-            teams[team]["total_points"] += points if points is not None else 0
+            if team_name != 'N/A':
+                teams[team_name]["total_points"] += points
 
-        # Sortujemy drużyny po sumie punktów (N/A nie liczy się)
-        sorted_teams = sorted(
-            ((tname, tdata) for tname, tdata in teams.items() if tname != "N/A"),
-            key=lambda x: x[1]["total_points"], reverse=True
-        )
-
-        # Dodajemy drużyny z N/A na koniec
-        if "N/A" in teams:
-            sorted_teams.append(("N/A", teams["N/A"]))
+        # sortowanie drużyn po punktach malejąco, N/A na końcu
+        sorted_teams = sorted(teams.items(), key=lambda x: (-x[1]["total_points"], x[0]=='N/A'))
 
         for team_name, team_data in sorted_teams:
             members = sorted(team_data["members"], key=lambda x: x["points"], reverse=True)
             value = ""
-            for i, m in enumerate(members):
-                trophy = " 🏆" if i == 0 else ""
-                line = f"{m['nick']}{trophy}: {m['points']} pkt, W {m['races']} wyścigach, DNF {m['dnf']}, DNS {m['dns']}\n"
+            for i, m in enumerate(members, start=1):
+                trophy = " 🏆" if i == 1 else ""
+                line = f"{i}. {m['nick']}{trophy}: {m['points']} pkt, W {m['races']} wyścigach, DNF {m['dnf']}, DNS {m['dns']}\n"
                 if len(value) + len(line) > MAX_FIELD_LENGTH:
                     embed.add_field(name=f"{team_name} ({team_data['total_points']} pkt)", value=value, inline=False)
                     value = ""
@@ -390,25 +363,30 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
             if value:
                 embed.add_field(name=f"{team_name} ({team_data['total_points']} pkt)", value=value, inline=False)
 
-    await interaction.followup.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
+
 
 # ----------------- /update_team -----------------
-@tree.command(name="update_team", description="Ustaw drużynę zawodnika w DB")
+@tree.command(name="update_team", description="Ustaw drużynę zawodnika (team1)")
 @app_commands.describe(member="Zawodnik", team="Nazwa drużyny")
 async def update_team(interaction: discord.Interaction, member: discord.Member, team: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
 
+    team = team.strip() if team else 'N/A'
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # dodaj kolumnę jeśli nie istnieje
-            cur.execute("ALTER TABLE driver_stats ADD COLUMN IF NOT EXISTS team TEXT DEFAULT 'N/A';")
-            # wstaw lub zaktualizuj team
             cur.execute("""
-                INSERT INTO driver_stats(user_id, team) VALUES (%s, %s)
-                ON CONFLICT(user_id) DO UPDATE SET team = EXCLUDED.team;
-            """, (member.id, team))
+                INSERT INTO driver_stats(user_id)
+                VALUES (%s)
+                ON CONFLICT (user_id) DO NOTHING
+            """, (member.id,))
+            cur.execute("""
+                UPDATE driver_stats
+                SET team1 = %s
+                WHERE user_id = %s
+            """, (team, member.id))
             conn.commit()
 
     await interaction.response.send_message(f"Ustawiono drużynę **{team}** dla {member.display_name} ✅", ephemeral=True)
@@ -456,6 +434,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

@@ -305,8 +305,12 @@ MAX_FIELD_LENGTH = 1024
 async def liga_table(interaction: discord.Interaction, view: app_commands.Choice[str]):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # pobieramy wszystkie statystyki wraz z drużyną (team może być NULL)
-            cur.execute("SELECT user_id, races, points, wins, podiums, dnf, dns, avg_position, team FROM driver_stats ORDER BY points DESC")
+            # pobieramy wszystkie statystyki wraz z drużyną
+            cur.execute("""
+                SELECT user_id, races, points, wins, podiums, dnf, dns, avg_position, team 
+                FROM driver_stats 
+                ORDER BY points DESC
+            """)
             drivers = cur.fetchall()
 
     if not drivers:
@@ -318,7 +322,7 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
         for d in drivers:
             user_id, races, points, wins, podiums, dnf, dns, avg_pos, team = d
 
-            # Wszystkie None zamieniamy na "N/A"
+            # Zamiana None na "N/A"
             races = races if races is not None else "N/A"
             points = points if points is not None else "N/A"
             wins = wins if wins is not None else "N/A"
@@ -342,12 +346,12 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
         for d in drivers:
             user_id, races, points, wins, podiums, dnf, dns, avg_pos, team_name = d
 
-            # Zamiana None na "N/A"
+            # Zamiana None na "N/A" dla drużyny i statystyk
+            team_name = team_name if team_name is not None else "N/A"
             races = races if races is not None else "N/A"
-            points = points if points is not None else "N/A"
+            points = points if points is not None else 0
             dnf = dnf if dnf is not None else "N/A"
             dns = dns if dns is not None else "N/A"
-            team_name = team_name if team_name is not None else "N/A"
 
             member = interaction.guild.get_member(user_id)
             nick = member.display_name if member else "Nieobecny"
@@ -362,11 +366,19 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
                 "dnf": dnf,
                 "dns": dns
             })
-            # sumowanie tylko jeśli points jest liczbą
-            teams[team_name]["total_points"] += points if isinstance(points,int) else 0
 
-        # sortowanie drużyn po sumie punktów malejąco
-        sorted_teams = sorted(teams.items(), key=lambda x: x[1]["total_points"], reverse=True)
+            # sumujemy punkty tylko jeśli drużyna nie jest "N/A"
+            if team_name != "N/A" and isinstance(points,int):
+                teams[team_name]["total_points"] += points
+
+        # Sortowanie drużyn po sumie punktów malejąco, N/A zawsze na końcu
+        sorted_teams = sorted(
+            [t for t in teams.items() if t[0] != "N/A"],
+            key=lambda x: x[1]["total_points"],
+            reverse=True
+        )
+        if "N/A" in teams:
+            sorted_teams.append(("N/A", teams["N/A"]))
 
         for team_name, team_data in sorted_teams:
             members = sorted(team_data["members"], key=lambda x: x["points"] if isinstance(x["points"],int) else 0, reverse=True)
@@ -383,6 +395,7 @@ async def liga_table(interaction: discord.Interaction, view: app_commands.Choice
 
     await interaction.response.send_message(embed=embed)
 
+
 # ----------------- /update_team -----------------
 @tree.command(name="update_team", description="Ustaw drużynę zawodnika")
 @app_commands.describe(member="Zawodnik", team="Nazwa drużyny")
@@ -393,17 +406,16 @@ async def update_team(interaction: discord.Interaction, member: discord.Member, 
 
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # dodaj kolumnę team jeśli nie istnieje
+            # dodanie kolumny team jeśli nie istnieje
             cur.execute("""
             ALTER TABLE driver_stats
             ADD COLUMN IF NOT EXISTS team TEXT;
             """)
-            # aktualizacja team w DB
+            # aktualizacja drużyny w DB
             cur.execute("UPDATE driver_stats SET team=%s WHERE user_id=%s", (team, member.id))
             conn.commit()
 
     await interaction.response.send_message(f"Ustawiono drużynę **{team}** dla {member.display_name} ✅", ephemeral=True)
-
 
 # ================= MVP VOTE =================
 @tree.command(name="mvp_vote", description="Głosowanie na zawodnika dnia")
@@ -448,6 +460,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

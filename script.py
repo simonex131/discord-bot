@@ -391,6 +391,101 @@ async def update_team(interaction: discord.Interaction, member: discord.Member, 
 
     await interaction.response.send_message(f"Ustawiono drużynę **{team}** dla {member.display_name} ✅", ephemeral=True)
 
+# ================= RACE & GRID =================
+
+from discord import app_commands
+import datetime
+
+# ----------------- /starting_grid -----------------
+@tree.command(name="starting_grid", description="Ustaw starting grid wyścigu")
+@app_commands.describe(track="Nazwa toru", results="Lista zawodników i czasów w formacie: @gracz 1:23.456 | @gracz 2 1:24.000")
+async def starting_grid(interaction: discord.Interaction, track:str, results:str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
+        return
+
+    # Parsowanie wyników
+    rows = [r.strip() for r in results.split("|") if r.strip()]
+    grid = []
+    for r in rows:
+        parts = r.split()
+        member = interaction.guild.get_member(int(parts[0].replace("<@","").replace(">","")))
+        time = parts[1]
+        if member:
+            grid.append((member, time))
+    
+    # Sortowanie po czasie (domyślnie zakładamy, że podajesz w kolejności)
+    embed = discord.Embed(title=f"🏁 Starting Grid: {track}", color=discord.Color.orange())
+    for i, (member, time) in enumerate(grid, start=1):
+        embed.add_field(name=f"{i}. {member.display_name}", value=f"Czas: {time}", inline=False)
+
+    await interaction.response.send_message(embed=embed)
+
+# ----------------- /ending_grid -----------------
+@tree.command(name="ending_grid", description="Zapisz wyniki wyścigu i zaktualizuj statystyki")
+@app_commands.describe(track="Nazwa toru", results="Lista zawodników i miejsc w formacie: @gracz 1 | @gracz 2")
+async def ending_grid(interaction: discord.Interaction, track:str, results:str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
+        return
+
+    rows = [r.strip() for r in results.split("|") if r.strip()]
+    grid = []
+    for r in rows:
+        member = interaction.guild.get_member(int(r.replace("<@","").replace(">","")))
+        if member:
+            grid.append(member)
+
+    embed = discord.Embed(title=f"🏆 Wyniki wyścigu: {track}", color=discord.Color.gold())
+    for i, member in enumerate(grid, start=1):
+        embed.add_field(name=f"{i}. {member.display_name}", value=f"Miejsce: {i}", inline=False)
+        # Aktualizacja statystyk zawodnika
+        points = max(len(grid) - i, 0)  # np. prosty system punktów malejąco
+        update_driver(member.id, pos=i, points=points)
+
+    # Aktualizacja statystyki serwera
+    update_server(races=1, points=sum(max(len(grid)-i,0) for i in range(len(grid))), last_best_team=None)
+
+    await interaction.response.send_message(embed=embed)
+
+# ----------------- /podium -----------------
+@tree.command(name="podium", description="Pokaż podium wyścigu z awatarami")
+@app_commands.describe(first="1. miejsce", second="2. miejsce", third="3. miejsce")
+async def podium(interaction: discord.Interaction, first:discord.Member, second:discord.Member, third:discord.Member):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
+        return
+
+    embed = discord.Embed(title="🥇 Podium Wyścigu 🏆", color=discord.Color.gold())
+    embed.add_field(name="🥇 1. miejsce", value=first.display_name, inline=True)
+    embed.add_field(name="🥈 2. miejsce", value=second.display_name, inline=True)
+    embed.add_field(name="🥉 3. miejsce", value=third.display_name, inline=True)
+    embed.set_thumbnail(url=first.avatar.url if first.avatar else None)
+    await interaction.response.send_message(embed=embed)
+
+# ----------------- /race_add -----------------
+@tree.command(name="race_add", description="Dodaj wyścig i zaktualizuj statystyki zawodników")
+@app_commands.describe(track="Nazwa toru", results="Lista zawodników i miejsc w formacie: @gracz 1 | @gracz 2")
+async def race_add(interaction: discord.Interaction, track:str, results:str):
+    await ending_grid(interaction, track, results)
+    await interaction.followup.send("Wyścig dodany ✅")
+
+# ----------------- /season_reset -----------------
+@tree.command(name="season_reset", description="Reset sezonu - statystyki serwera i zawodników")
+async def season_reset(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
+        return
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE driver_stats SET races=0, points=0, wins=0, podiums=0, dnf=0, dns=0, avg_position=0")
+            cur.execute("UPDATE server_stats SET races=0, total_points=0, total_dnf=0, total_dns=0, last_mvp=NULL, last_best_team=NULL")
+            conn.commit()
+
+    await interaction.response.send_message("Sezon zresetowany ✅", ephemeral=True)
+
+
 # ================= MVP VOTE =================
 @tree.command(name="mvp_vote", description="Głosowanie na zawodnika dnia")
 @app_commands.describe(candidates="Pinguj zawodników (max 20) oddzielając spacją)")

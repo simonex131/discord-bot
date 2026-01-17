@@ -106,65 +106,9 @@ async def numery_slash(interaction: discord.Interaction):
 @bot.command(name="numery")
 async def numery_prefix(ctx):
     await ctx.send(NUMERY_TEXT)
-
-# ================= WYSYŁANIE I UPDATE =================
-def get_next_number():
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT MAX(numer) FROM messages")
-            res = cur.fetchone()[0]
-            return (res or 0) + 1
-
-def save_message(numer, message_id, channel_id):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("INSERT INTO messages (numer,message_id,channel_id) VALUES (%s,%s,%s)", 
-                        (numer,message_id,channel_id))
-            conn.commit()
-
-def get_message(numer):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT message_id,channel_id FROM messages WHERE numer=%s", (numer,))
-            return cur.fetchone()
-
-@tree.command(name="wyslij", description="Wyślij wiadomość z numerem")
-@app_commands.describe(channel="Kanał", tresc="Treść")
-async def wyslij(interaction: discord.Interaction, channel: discord.TextChannel, tresc: str):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
-        return
-
-    numer = get_next_number()
-    tresc = (tresc or "").replace("|","\n")
-    if len(tresc) > 2000: tresc = tresc[:2000]
-
-    msg = await channel.send(tresc)
-    save_message(numer,msg.id,channel.id)
-    await interaction.response.send_message(f"Wysłano wiadomość\nNumer: **{numer}**", ephemeral=True)
-
-@tree.command(name="update", description="Edytuj wiadomość po numerze")
-@app_commands.describe(numer="Numer wiadomości", nowa_tresc="Nowa treść")
-async def update(interaction: discord.Interaction, numer: int, nowa_tresc: str):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
-        return
-    msg_data = get_message(numer)
-    if not msg_data:
-        await interaction.response.send_message("Nie znaleziono wiadomości ❌", ephemeral=True)
-        return
-    message_id, channel_id = msg_data
-    channel = bot.get_channel(channel_id)
-    if not channel:
-        await interaction.response.send_message("Nie znaleziono kanału ❌", ephemeral=True)
-        return
-    msg = await channel.fetch_message(message_id)
-    nowa_tresc = (nowa_tresc or "").replace("|","\n")
-    await msg.edit(content=nowa_tresc)
-    await interaction.response.send_message("Zaktualizowano ✅", ephemeral=True)
-
+    
 # ================= WYŚCIG =================
-WYSCIG_TEXT = "Następny wyścig: Qatar"
+WYSCIG_TEXT = "Następny wyścig: Australia"
 @tree.command(name="wyscig", description="Pokazuje, gdzie odbędzie się następny wyścig.")
 async def wyscig(interaction: discord.Interaction):
     await interaction.response.send_message(WYSCIG_TEXT, ephemeral=True)
@@ -264,30 +208,51 @@ async def driver_stats(interaction: discord.Interaction, driver:discord.Member=N
     await interaction.response.send_message(embed=embed)
 
 @tree.command(name="update_driver", description="Aktualizuj statystyki zawodnika")
-@app_commands.describe(user="Zawodnik", races="Wyścigi", points="Punkty", wins="Wygrane",
-                       podiums="Podia", dnf="DNF", dns="DNS", avg_position="Średnia pozycja")
-async def update_driver(interaction: discord.Interaction,user:discord.Member,races:int,points:int,wins:int,
-                        podiums:int,dnf:int,dns:int,avg_position:float):
+@app_commands.describe(
+    user="Zawodnik", races="Wyścigi", points="Punkty", wins="Wygrane",
+    podiums="Podia", dnf="DNF", dns="DNS", avg_position="Średnia pozycja"
+)
+async def update_driver(interaction: discord.Interaction, user: discord.Member, races: int, points: int, wins: int,
+                        podiums: int, dnf: int, dns: int, avg_position: float):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
+
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-            INSERT INTO driver_stats(user_id,races,points,wins,podiums,dnf,dns,avg_position)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT(user_id) DO UPDATE SET
-                races=EXCLUDED.races,
-                points=EXCLUDED.points,
-                wins=EXCLUDED.wins,
-                podiums=EXCLUDED.podiums,
-                dnf=EXCLUDED.dnf,
-                dns=EXCLUDED.dns,
-                avg_position=EXCLUDED.avg_position
-            """,(user.id,races,points,wins,podiums,dnf,dns,avg_position))
-            conn.commit()
-    await interaction.response.send_message(f"Zaktualizowano staty **{user.display_name}** ✅", ephemeral=True)
+            # Tworzymy wpis jeśli nie istnieje
+            cur.execute("INSERT INTO driver_stats(user_id) VALUES(%s) ON CONFLICT DO NOTHING", (user.id,))
+            
+            # Pobieramy aktualne wartości
+            cur.execute("SELECT races, points, wins, podiums, dnf, dns, avg_position FROM driver_stats WHERE user_id=%s", (user.id,))
+            r = cur.fetchone()
+            if r:
+                curr_races, curr_points, curr_wins, curr_podiums, curr_dnf, curr_dns, curr_avg = r
+            else:
+                curr_races = curr_points = curr_wins = curr_podiums = curr_dnf = curr_dns = curr_avg = 0
 
+            # Obliczamy nową średnią pozycję
+            total_races = curr_races + races
+            if total_races > 0:
+                new_avg = ((curr_avg * curr_races) + (avg_position * races)) / total_races
+            else:
+                new_avg = 0
+
+            # Aktualizujemy wartości w bazie dodając do obecnych
+            cur.execute("""
+                UPDATE driver_stats SET
+                    races = races + %s,
+                    points = points + %s,
+                    wins = wins + %s,
+                    podiums = podiums + %s,
+                    dnf = dnf + %s,
+                    dns = dns + %s,
+                    avg_position = %s
+                WHERE user_id = %s
+            """, (races, points, wins, podiums, dnf, dns, new_avg, user.id))
+            conn.commit()
+
+    await interaction.response.send_message(f"Zaktualizowano staty **{user.display_name}** ✅", ephemeral=True)
 
 # ================= LIGA TABLE & UPDATE TEAM (team1) =================
 from discord import app_commands
@@ -529,6 +494,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

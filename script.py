@@ -62,6 +62,16 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """)
+            cur.execute("""ALTER TABLE driver_stats ADD COLUMN IF NOT EXISTS team1 TEXT DEFAULT 'N/A';
+            """)
+            cur.execute("""CREATE TABLE IF NOT EXISTS race_starting_grid (
+            track TEXT NOT NULL,
+            user_id BIGINT NOT NULL,
+            start_pos INTEGER,
+             time REAL,
+             PRIMARY KEY(track, user_id)
+             );
+             """)
             conn.commit()
 
 # ================= DISCORD =================
@@ -118,7 +128,7 @@ async def wyscig_prefix(ctx):
     await ctx.send(WYSCIG_TEXT)
 
 # ================= SERVER STATS =================
-def update_server(races=0,dnf=0,dns=0,points=0,mvp=None,team=None):
+def update_server(races=0, dnf=0, dns=0, points=0, mvp=None, team=None):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -130,21 +140,19 @@ def update_server(races=0,dnf=0,dns=0,points=0,mvp=None,team=None):
                 last_mvp = COALESCE(%s,last_mvp),
                 last_best_team = COALESCE(%s,last_best_team)
             WHERE id=1
-            """,(races,dnf,dns,points,mvp,team))
+            """, (races, dnf, dns, points, mvp, team))
             conn.commit()
 
 @tree.command(name="server_stats", description="Statystyki ligi")
 async def server_stats(interaction: discord.Interaction):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # SELECT w określonej kolejności, żeby liczby się zgadzały
             cur.execute("""
                 SELECT races, total_dnf, total_dns, total_points, last_mvp, last_best_team
                 FROM server_stats
                 WHERE id=1
             """)
             r = cur.fetchone()
-
     embed = discord.Embed(title="📊 Statystyki ligi")
     embed.add_field(name="Wyścigi", value=r[0])
     embed.add_field(name="DNF", value=r[1])
@@ -152,7 +160,6 @@ async def server_stats(interaction: discord.Interaction):
     embed.add_field(name="Punkty łącznie", value=r[3])
     embed.add_field(name="Ostatni MVP", value=f"<@{r[4]}>" if r[4] else "—")
     embed.add_field(name="Najlepsza drużyna", value=r[5] or "—")
-
     await interaction.response.send_message(embed=embed)
 
 @tree.command(name="update_server_stats", description="Aktualizuj statystyki serwera")
@@ -169,7 +176,7 @@ async def update_server_stats(interaction: discord.Interaction, races:int,total_
     await interaction.response.send_message("Statystyki serwera zaktualizowane ✅", ephemeral=True)
 
 # ================= DRIVER STATS =================
-def update_driver(user_id, pos=None, points=0,dnf=False,dns=False):
+def update_driver_logic(user_id, pos=None, points=0, dnf=False, dns=False):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("INSERT INTO driver_stats(user_id) VALUES(%s) ON CONFLICT DO NOTHING",(user_id,))
@@ -183,8 +190,8 @@ def update_driver(user_id, pos=None, points=0,dnf=False,dns=False):
                 dns = dns + %s,
                 avg_position = ((avg_position*(races-1)) + %s)/races
             WHERE user_id=%s
-            """,(points, 1 if pos==1 else 0,1 if pos and pos<=3 else 0,1 if dnf else 0,
-                 1 if dns else 0,pos or 0,user_id))
+            """, (points, 1 if pos==1 else 0, 1 if pos and pos<=3 else 0,
+                  1 if dnf else 0, 1 if dns else 0, pos or 0, user_id))
             conn.commit()
 
 @tree.command(name="driver_stats", description="Statystyki zawodnika")
@@ -207,225 +214,161 @@ async def driver_stats(interaction: discord.Interaction, driver:discord.Member=N
     embed.add_field(name="Śr. pozycja", value=round(r[7],2))
     await interaction.response.send_message(embed=embed)
 
-@tree.command(name="update_driver", description="Aktualizuj statystyki zawodnika")
-@app_commands.describe(
-    user="Zawodnik", races="Wyścigi", points="Punkty", wins="Wygrane",
-    podiums="Podia", dnf="DNF", dns="DNS", avg_position="Średnia pozycja"
-)
-async def update_driver(interaction: discord.Interaction, user: discord.Member, races: int, points: int, wins: int,
-                        podiums: int, dnf: int, dns: int, avg_position: float):
+@tree.command(name="update_driver", description="Dodaj punkty do zawodnika")
+@app_commands.describe(user="Zawodnik", points="Dodaj punkty", pos="Pozycja", dnf="DNF?", dns="DNS?")
+async def update_driver(interaction: discord.Interaction, user:discord.Member, points:int, pos:int=None, dnf:bool=False, dns:bool=False):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
+    update_driver_logic(user.id, pos=pos, points=points, dnf=dnf, dns=dns)
+    await interaction.response.send_message(f"Dodano **{points} pkt** do {user.display_name} ✅", ephemeral=True)
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # Tworzymy wpis jeśli nie istnieje
-            cur.execute("INSERT INTO driver_stats(user_id) VALUES(%s) ON CONFLICT DO NOTHING", (user.id,))
-            
-            # Pobieramy aktualne wartości
-            cur.execute("SELECT races, points, wins, podiums, dnf, dns, avg_position FROM driver_stats WHERE user_id=%s", (user.id,))
-            r = cur.fetchone()
-            if r:
-                curr_races, curr_points, curr_wins, curr_podiums, curr_dnf, curr_dns, curr_avg = r
-            else:
-                curr_races = curr_points = curr_wins = curr_podiums = curr_dnf = curr_dns = curr_avg = 0
-
-            # Obliczamy nową średnią pozycję
-            total_races = curr_races + races
-            if total_races > 0:
-                new_avg = ((curr_avg * curr_races) + (avg_position * races)) / total_races
-            else:
-                new_avg = 0
-
-            # Aktualizujemy wartości w bazie dodając do obecnych
-            cur.execute("""
-                UPDATE driver_stats SET
-                    races = races + %s,
-                    points = points + %s,
-                    wins = wins + %s,
-                    podiums = podiums + %s,
-                    dnf = dnf + %s,
-                    dns = dns + %s,
-                    avg_position = %s
-                WHERE user_id = %s
-            """, (races, points, wins, podiums, dnf, dns, new_avg, user.id))
-            conn.commit()
-
-    await interaction.response.send_message(f"Zaktualizowano staty **{user.display_name}** ✅", ephemeral=True)
-
-# ================= LIGA TABLE & UPDATE TEAM (team1) =================
-from discord import app_commands
-from discord.ext import commands
-import discord
-
-MAX_FIELD_LENGTH = 1024
-
-# ----------------- /liga_table -----------------
+# ================= LIGA TABLE =================
 @tree.command(name="liga_table", description="Tabela ligi - wybierz widok")
-@app_commands.describe(view="Wybierz typ tabeli")
-@app_commands.choices(view=[
-    app_commands.Choice(name="Kierowcy", value="drivers"),
-    app_commands.Choice(name="Drużyny", value="teams")
-])
+@app_commands.describe(view="Kierowcy / Drużyny")
+@app_commands.choices(view=[app_commands.Choice(name="Kierowcy", value="drivers"),
+                             app_commands.Choice(name="Drużyny", value="teams")])
 async def liga_table(interaction: discord.Interaction, view: app_commands.Choice[str]):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT user_id, races, points, wins, podiums, dnf, dns, avg_position, team1 FROM driver_stats ORDER BY points DESC")
             drivers = cur.fetchall()
-
     if not drivers:
-        await interaction.response.send_message("Brak danych o zawodnikach ❌", ephemeral=True)
+        await interaction.response.send_message("Brak danych ❌", ephemeral=True)
         return
-
     if view.value == "drivers":
         embed = discord.Embed(title="🏎️ Tabela Kierowców", color=discord.Color.blue())
-        for i, d in enumerate(drivers, start=1):
-            user_id, races, points, wins, podiums, dnf, dns, avg_pos, team_name = d
-            member = interaction.guild.get_member(user_id)
-            nick = member.display_name if member else f"Nieobecny ({user_id})"
-            team_name = team_name if team_name and team_name != 'N/A' else 'N/A'
-            value = (f"Drużyna: {team_name}\n"
-                     f"Wyścigi: {races}, Punkty: {points}, Zwycięstwa: {wins}, "
-                     f"Podia: {podiums}, DNF: {dnf}, DNS: {dns}, Śr.pozycja: {round(avg_pos,2)}")
+        for i,d in enumerate(drivers,start=1):
+            uid,races,points,wins,podiums,dnf,dns,avg,team = d
+            member = interaction.guild.get_member(uid)
+            nick = member.display_name if member else f"Nieobecny ({uid})"
+            team = team if team and team != "N/A" else "N/A"
+            value = f"Drużyna: {team}\nWyścigi: {races}, Punkty: {points}, Zwycięstwa: {wins}, Podia: {podiums}, DNF: {dnf}, DNS: {dns}, Śr.pozycja: {round(avg,2)}"
             embed.add_field(name=f"{i}. {nick}", value=value, inline=False)
-
-    else:  # teams view
+    else:
         embed = discord.Embed(title="🏁 Tabela Drużyn", color=discord.Color.green())
         teams = {}
         for d in drivers:
-            user_id, races, points, wins, podiums, dnf, dns, avg_pos, team_name = d
-            member = interaction.guild.get_member(user_id)
-            nick = member.display_name if member else f"Nieobecny ({user_id})"
-            team_name = team_name if team_name and team_name != 'N/A' else 'N/A'
-
-            if team_name not in teams:
-                teams[team_name] = {"members": [], "total_points": 0}
-
-            teams[team_name]["members"].append({
-                "nick": nick,
-                "points": points,
-                "races": races,
-                "dnf": dnf,
-                "dns": dns
-            })
-            if team_name != 'N/A':
-                teams[team_name]["total_points"] += points
-
-        # sortowanie drużyn po punktach malejąco, N/A na końcu
-        sorted_teams = sorted(teams.items(), key=lambda x: (-x[1]["total_points"], x[0]=='N/A'))
-
-        for team_name, team_data in sorted_teams:
-            members = sorted(team_data["members"], key=lambda x: x["points"], reverse=True)
-            value = ""
-            for i, m in enumerate(members, start=1):
-                trophy = " 🏆" if i == 1 else ""
-                line = f"{i}. {m['nick']}{trophy}: {m['points']} pkt, W {m['races']} wyścigach, DNF {m['dnf']}, DNS {m['dns']}\n"
-                if len(value) + len(line) > MAX_FIELD_LENGTH:
-                    embed.add_field(name=f"{team_name} ({team_data['total_points']} pkt)", value=value, inline=False)
-                    value = ""
-                value += line
+            uid,races,points,wins,podiums,dnf,dns,avg,team = d
+            member = interaction.guild.get_member(uid)
+            nick = member.display_name if member else f"Nieobecny ({uid})"
+            team = team if team and team != "N/A" else "N/A"
+            if team not in teams:
+                teams[team] = {"members":[], "points":0}
+            teams[team]["members"].append({"nick":nick,"points":points,"races":races,"dnf":dnf,"dns":dns})
+            if team!="N/A":
+                teams[team]["points"]+=points
+        sorted_teams = sorted(teams.items(), key=lambda x:(-x[1]["points"], x[0]=="N/A"))
+        for team_name,data in sorted_teams:
+            members = sorted(data["members"], key=lambda x:x["points"], reverse=True)
+            value=""
+            for i,m in enumerate(members,start=1):
+                trophy=" 🏆" if i==1 else ""
+                line=f"{i}. {m['nick']}{trophy}: {m['points']} pkt, W {m['races']} wyścigach, DNF {m['dnf']}, DNS {m['dns']}\n"
+                if len(value)+len(line)>MAX_FIELD_LENGTH:
+                    embed.add_field(name=f"{team_name} ({data['points']} pkt)", value=value, inline=False)
+                    value=""
+                value+=line
             if value:
-                embed.add_field(name=f"{team_name} ({team_data['total_points']} pkt)", value=value, inline=False)
-
+                embed.add_field(name=f"{team_name} ({data['points']} pkt)", value=value, inline=False)
     await interaction.response.send_message(embed=embed)
 
-
-# ----------------- /update_team -----------------
-@tree.command(name="update_team", description="Ustaw drużynę zawodnika (team1)")
+# ================= UPDATE TEAM =================
+@tree.command(name="update_team", description="Ustaw drużynę zawodnika")
 @app_commands.describe(member="Zawodnik", team="Nazwa drużyny")
 async def update_team(interaction: discord.Interaction, member: discord.Member, team: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
-
-    team = team.strip() if team else 'N/A'
+    team = team.strip() if team else "N/A"
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO driver_stats(user_id)
-                VALUES (%s)
-                ON CONFLICT (user_id) DO NOTHING
-            """, (member.id,))
-            cur.execute("""
-                UPDATE driver_stats
-                SET team1 = %s
-                WHERE user_id = %s
-            """, (team, member.id))
+            cur.execute("INSERT INTO driver_stats(user_id) VALUES(%s) ON CONFLICT DO NOTHING",(member.id,))
+            cur.execute("UPDATE driver_stats SET team1=%s WHERE user_id=%s",(team,member.id))
             conn.commit()
-
     await interaction.response.send_message(f"Ustawiono drużynę **{team}** dla {member.display_name} ✅", ephemeral=True)
 
-# ================= RACE & GRID =================
-
-from discord import app_commands
-import datetime
-
-# ----------------- /starting_grid -----------------
-@tree.command(name="starting_grid", description="Ustaw starting grid wyścigu")
-@app_commands.describe(track="Nazwa toru", results="Lista zawodników i czasów w formacie: @gracz 1:23.456 | @gracz 2 1:24.000")
-async def starting_grid(interaction: discord.Interaction, track:str, results:str):
+# ================= STARTING GRID =================
+@tree.command(name="starting_grid", description="Zapisz tabelę startową")
+@app_commands.describe(track="Nazwa toru", times="@gracz czas | @gracz czas ...")
+async def starting_grid(interaction: discord.Interaction, track:str, times:str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
-
-    # Parsowanie wyników
-    rows = [r.strip() for r in results.split("|") if r.strip()]
-    grid = []
+    rows=[r.strip() for r in times.split("|") if r.strip()]
+    grid=[]
     for r in rows:
-        parts = r.split()
-        member = interaction.guild.get_member(int(parts[0].replace("<@","").replace(">","")))
-        time = parts[1]
-        if member:
-            grid.append((member, time))
-    
-    # Sortowanie po czasie (domyślnie zakładamy, że podajesz w kolejności)
-    embed = discord.Embed(title=f"🏁 Starting Grid: {track}", color=discord.Color.orange())
-    for i, (member, time) in enumerate(grid, start=1):
-        embed.add_field(name=f"{i}. {member.display_name}", value=f"Czas: {time}", inline=False)
-
+        try:
+            mention,time=r.split()
+            member=interaction.guild.get_member(int(mention.replace("<@","").replace(">","")))
+            grid.append({"member":member,"time":float(time.replace(",","."))})
+        except: continue
+    if not grid:
+        await interaction.response.send_message("Niepoprawny format danych ❌", ephemeral=True)
+        return
+    grid.sort(key=lambda x:x["time"])
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            for pos,entry in enumerate(grid,start=1):
+                cur.execute("INSERT INTO race_starting_grid(track,user_id,start_pos,time) VALUES(%s,%s,%s,%s) ON CONFLICT(track,user_id) DO UPDATE SET start_pos=EXCLUDED.start_pos,time=EXCLUDED.time",(track,entry["member"].id,pos,entry["time"]))
+            conn.commit()
+    embed=discord.Embed(title=f"🏁 Starting Grid: {track}",color=discord.Color.blue())
+    for i,entry in enumerate(grid,start=1):
+        embed.add_field(name=f"{i}. {entry['member'].display_name}",value=f"Czas: {entry['time']}",inline=False)
     await interaction.response.send_message(embed=embed)
 
-# ----------------- /ending_grid -----------------
-@tree.command(name="ending_grid", description="Zapisz wyniki wyścigu i zaktualizuj statystyki")
-@app_commands.describe(track="Nazwa toru", results="Lista zawodników i miejsc w formacie: @gracz 1 | @gracz 2")
+# ================= ENDING GRID =================
+@tree.command(name="ending_grid", description="Zapisz wyniki i pokaż przesunięcia")
+@app_commands.describe(track="Nazwa toru", results="@gracz | @gracz ...")
 async def ending_grid(interaction: discord.Interaction, track:str, results:str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
-
-    rows = [r.strip() for r in results.split("|") if r.strip()]
-    grid = []
+    rows=[r.strip() for r in results.split("|") if r.strip()]
+    final_grid=[]
     for r in rows:
-        member = interaction.guild.get_member(int(r.replace("<@","").replace(">","")))
-        if member:
-            grid.append(member)
-
-    embed = discord.Embed(title=f"🏆 Wyniki wyścigu: {track}", color=discord.Color.gold())
-    for i, member in enumerate(grid, start=1):
-        embed.add_field(name=f"{i}. {member.display_name}", value=f"Miejsce: {i}", inline=False)
-        # Aktualizacja statystyk zawodnika
-        points = max(len(grid) - i, 0)  # np. prosty system punktów malejąco
-        update_driver(member.id, pos=i, points=points)
-
-    # Aktualizacja statystyki serwera
-    update_server(races=1, points=sum(max(len(grid)-i,0) for i in range(len(grid))), last_best_team=None)
-
+        try:
+            final_grid.append(interaction.guild.get_member(int(r.replace("<@","").replace(">",""))))
+        except: continue
+    if not final_grid:
+        await interaction.response.send_message("Niepoprawny format danych ❌", ephemeral=True)
+        return
+    start_pos={}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            for member in final_grid:
+                cur.execute("SELECT start_pos FROM race_starting_grid WHERE track=%s AND user_id=%s",(track,member.id))
+                r=cur.fetchone()
+                start_pos[member.id]=r[0] if r else None
+    embed=discord.Embed(title=f"🏆 Wyniki wyścigu: {track}", color=discord.Color.gold())
+    total_points=0
+    for i,member in enumerate(final_grid,start=1):
+        points=max(len(final_grid)-i,0)
+        total_points+=points
+        update_driver_logic(member.id,pos=i,points=points)
+        sp=start_pos.get(member.id)
+        if sp: delta=f"{'+' if sp-i>0 else ''}{sp-i} miejsc" if sp-i!=0 else "bez zmian"
+        else: delta="—"
+        embed.add_field(name=f"{i}. {member.display_name}", value=f"Punkty: {points}, Przesunięcie: {delta}", inline=False)
+    update_server(races=1, points=total_points)
     await interaction.response.send_message(embed=embed)
 
-# ----------------- /podium -----------------
-@tree.command(name="podium", description="Pokaż podium wyścigu z awatarami")
-@app_commands.describe(first="1. miejsce", second="2. miejsce", third="3. miejsce")
-async def podium(interaction: discord.Interaction, first:discord.Member, second:discord.Member, third:discord.Member):
+# ================= PODIUM =================
+@tree.command(name="podium", description="Wyświetl podium wybranych zawodników")
+@app_commands.describe(drivers="@gracz | @gracz | @gracz")
+async def podium(interaction: discord.Interaction, drivers:str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
         return
-
-    embed = discord.Embed(title="🥇 Podium Wyścigu 🏆", color=discord.Color.gold())
-    embed.add_field(name="🥇 1. miejsce", value=first.display_name, inline=True)
-    embed.add_field(name="🥈 2. miejsce", value=second.display_name, inline=True)
-    embed.add_field(name="🥉 3. miejsce", value=third.display_name, inline=True)
-    embed.set_thumbnail(url=first.avatar.url if first.avatar else None)
+    mentions=[d.strip() for d in drivers.split("|") if d.strip()]
+    members=[]
+    for m in mentions:
+        try: members.append(interaction.guild.get_member(int(m.replace("<@","").replace(">",""))))
+        except: continue
+    embed=discord.Embed(title="🏆 Podium", color=discord.Color.gold())
+    for i,member in enumerate(members,start=1):
+        embed.add_field(name=f"{i}. {member.display_name}", value=" ", inline=True)
+        embed.set_thumbnail(url=member.avatar.url if member.avatar else None)
     await interaction.response.send_message(embed=embed)
 
 # ----------------- /race_add -----------------
@@ -494,6 +437,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

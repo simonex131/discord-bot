@@ -318,40 +318,95 @@ async def starting_grid(interaction: discord.Interaction, track:str, times:str):
     await interaction.response.send_message(embed=embed)
 
 # ================= ENDING GRID =================
-@tree.command(name="ending_grid", description="Zapisz wyniki i pokaż przesunięcia")
-@app_commands.describe(track="Nazwa toru", results="@gracz | @gracz ...")
-async def ending_grid(interaction: discord.Interaction, track:str, results:str):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Brak uprawnień ❌", ephemeral=True)
-        return
-    rows=[r.strip() for r in results.split("|") if r.strip()]
-    final_grid=[]
+# ================= LOGIKA WYŚCIGU =================
+async def process_race_results(interaction, track: str, results: str):
+    # Parsowanie wyników z opcjonalnym DNF/DNS
+    rows = [r.strip() for r in results.split("|") if r.strip()]
+    final_grid = []
+
     for r in rows:
         try:
-            final_grid.append(interaction.guild.get_member(int(r.replace("<@","").replace(">",""))))
-        except: continue
+            mention, result = r.split()
+            member = interaction.guild.get_member(int(mention.replace("<@","").replace(">","")))
+            if not member:
+                continue
+            result = result.upper()
+            if result == "DNF":
+                pos = None
+                points = 0
+                dnf = True
+                dns = False
+            elif result == "DNS":
+                pos = None
+                points = 0
+                dnf = False
+                dns = True
+            else:
+                pos = int(result)
+                points = max(len(rows) - pos, 0)
+                dnf = False
+                dns = False
+            final_grid.append({"member": member, "pos": pos, "points": points, "dnf": dnf, "dns": dns})
+        except:
+            continue
+
     if not final_grid:
         await interaction.response.send_message("Niepoprawny format danych ❌", ephemeral=True)
-        return
-    start_pos={}
+        return None
+
+    # Pobranie pozycji startowych
+    start_pos = {}
     with get_conn() as conn:
         with conn.cursor() as cur:
-            for member in final_grid:
-                cur.execute("SELECT start_pos FROM race_starting_grid WHERE track=%s AND user_id=%s",(track,member.id))
-                r=cur.fetchone()
-                start_pos[member.id]=r[0] if r else None
-    embed=discord.Embed(title=f"🏆 Wyniki wyścigu: {track}", color=discord.Color.gold())
-    total_points=0
-    for i,member in enumerate(final_grid,start=1):
-        points=max(len(final_grid)-i,0)
-        total_points+=points
-        update_driver_logic(member.id,pos=i,points=points)
-        sp=start_pos.get(member.id)
-        if sp: delta=f"{'+' if sp-i>0 else ''}{sp-i} miejsc" if sp-i!=0 else "bez zmian"
-        else: delta="—"
-        embed.add_field(name=f"{i}. {member.display_name}", value=f"Punkty: {points}, Przesunięcie: {delta}", inline=False)
+            for entry in final_grid:
+                cur.execute("SELECT start_pos FROM race_starting_grid WHERE track=%s AND user_id=%s",
+                            (track, entry["member"].id))
+                r = cur.fetchone()
+                start_pos[entry["member"].id] = r[0] if r else None
+
+    # Tworzenie embedu wyników
+    embed = discord.Embed(title=f"🏆 Wyniki wyścigu: {track}", color=discord.Color.gold())
+    total_points = 0
+    for entry in final_grid:
+        member = entry["member"]
+        pos = entry["pos"]
+        points = entry["points"]
+        dnf = entry["dnf"]
+        dns = entry["dns"]
+
+        total_points += points
+        update_driver_logic(member.id, pos=pos, points=points, dnf=dnf, dns=dns)
+
+        sp = start_pos.get(member.id)
+        if sp:
+            delta = f"{'+' if sp - (pos or sp) > 0 else ''}{(sp - (pos or sp))} miejsc" if pos else "—"
+        else:
+            delta = "—"
+
+        status = "DNF" if dnf else "DNS" if dns else f"Punkty: {points}"
+        embed.add_field(name=f"{pos or '—'}. {member.display_name}", value=f"{status}, Przesunięcie: {delta}", inline=False)
+
+    # Aktualizacja statystyki serwera
     update_server(races=1, points=total_points)
-    await interaction.response.send_message(embed=embed)
+    return embed
+
+# ================= ENDING GRID =================
+@tree.command(name="ending_grid", description="Zapisz wyniki i pokaż przesunięcia")
+@app_commands.describe(track="Nazwa toru", results="@gracz miejsce/DNF/DNS | ...")
+async def ending_grid(interaction: discord.Interaction, track:str, results:str):
+    embed = await process_race_results(interaction, track, results)
+    if embed:
+        await interaction.response.send_message(embed=embed)
+
+# ================= RACE ADD =================
+@tree.command(name="race_add", description="Dodaj wyścig i zaktualizuj statystyki zawodników")
+@app_commands.describe(track="Nazwa toru", results="@gracz miejsce/DNF/DNS | ...")
+async def race_add(interaction: discord.Interaction, track:str, results:str):
+    embed = await process_race_results(interaction, track, results)
+    if embed:
+        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send("Wyścig dodany ✅")
+
 
 # ================= PODIUM =================
 @tree.command(name="podium", description="Wyświetl podium wybranych zawodników")
@@ -370,13 +425,6 @@ async def podium(interaction: discord.Interaction, drivers:str):
         embed.add_field(name=f"{i}. {member.display_name}", value=" ", inline=True)
         embed.set_thumbnail(url=member.avatar.url if member.avatar else None)
     await interaction.response.send_message(embed=embed)
-
-# ----------------- /race_add -----------------
-@tree.command(name="race_add", description="Dodaj wyścig i zaktualizuj statystyki zawodników")
-@app_commands.describe(track="Nazwa toru", results="Lista zawodników i miejsc w formacie: @gracz 1 | @gracz 2")
-async def race_add(interaction: discord.Interaction, track:str, results:str):
-    await ending_grid(interaction, track, results)
-    await interaction.followup.send("Wyścig dodany ✅")
 
 # ----------------- /season_reset -----------------
 @tree.command(name="season_reset", description="Reset sezonu - statystyki serwera i zawodników")
@@ -437,6 +485,7 @@ async def link_roblox(interaction: discord.Interaction, roblox_nick:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+
 
 
 

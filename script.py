@@ -100,7 +100,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # ================= NUMERY =================
-NUMERY_TEXT = "Dostępne numery: 2,4,5,8,9,10,16,18,20,23,24,25,27,28,30,32,34,35,36,38,39,40,42,43,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,62,64,65,66,67,68,69,70,73,74,75,76,78,79,81,82,83,84,85,86,89,90,91,92,93,94,95,96,97,98"
+NUMERY_TEXT = "Dostępne numery: 5,7,9,10,18,20,28,30,31,32,34,35,36,38,39,40,42,43,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,62,64,65,66,68,69,70,73,74,75,76,78,79,81,82,83,84,85,86,89,90,91,92,93,94,95,96,97,98,99"
 
 @tree.command(name="numery", description="Wyświetla listę numerów")
 async def numery_slash(interaction: discord.Interaction):
@@ -111,7 +111,7 @@ async def numery_prefix(ctx):
     await ctx.send(NUMERY_TEXT)
 
 # ================= WYŚCIG =================
-WYSCIG_TEXT = "Następny wyścig: Australia"
+WYSCIG_TEXT = "Następny wyścig: Silverstone"
 
 @tree.command(name="wyscig", description="Pokazuje, gdzie odbędzie się następny wyścig")
 async def wyscig(interaction: discord.Interaction):
@@ -408,3 +408,4 @@ async def link_roblox(interaction: discord.Interaction, link:str):
 init_db()
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+

@@ -286,38 +286,25 @@ async def admin_warn(
         f"⚠️ **Warn nadany** — to jest **{warn_count}. warn** tej osoby."
     )
 
-@tree.command(name="admin_warns", description="Sprawdź warny użytkownika")
-@app_commands.check(is_admin)
-async def admin_warns(
-    interaction: discord.Interaction,
-    user: discord.Member
-):
+@tree.command(name="admin_warns")
+async def admin_warns(interaction: discord.Interaction, user: discord.Member):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT reason, created_at FROM warns WHERE user_id=%s ORDER BY created_at",
-                (user.id,)
-            )
+            cur.execute("SELECT reason, created_at FROM warns WHERE user_id=%s", (user.id,))
             rows = cur.fetchall()
 
     if not rows:
-        await interaction.response.send_message(
-            f"✅ {user.mention} nie ma żadnych warnów."
-        )
+        await interaction.response.send_message(f"{user.display_name} nie ma żadnych warnów ❌", ephemeral=True)
         return
 
-    embed = discord.Embed(
-        title=f"⚠️ Warny użytkownika: {user.display_name}",
-        description=f"Łącznie: **{len(rows)}**",
-        color=discord.Color.orange()
-    )
-
-  for i, (reason, date) in enumerate(rows, start=1)
-    embed.add_field(
-        name=f"Warn #{i}",
-        value=f"📄 {reason}\n🕒 {date}",  # <--- używasz stringa bez .strftime
-        inline=False
-    )
+    embed = discord.Embed(title=f"Warny {user.display_name}", color=discord.Color.orange())
+    for i, (reason, date) in enumerate(rows, start=1):
+        embed.add_field(
+            name=f"Warn #{i}",
+            value=f"📄 {reason}\n🕒 {date}",  # używamy stringa
+            inline=False
+        )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
     await interaction.response.send_message(embed=embed)
 
@@ -382,6 +369,7 @@ async def wyscig_prefix(ctx: commands.Context):
 
 keep_alive()
 bot.run(TOKEN)
+
 
 
 

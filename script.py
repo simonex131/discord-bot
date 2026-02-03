@@ -12,6 +12,17 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
+# ===== Flask dla uptime ====
+app = Flask("")
+
+@app.route("/")
+def home():
+    return "Bot działa ✅"
+
+def keep_alive():
+    port = int(os.environ.get("PORT", 8080))  # Render wymaga PORT
+    Thread(target=lambda: app.run(host="0.0.0.0", port=port)).start()
+
 # ================== DB ==================
 conn = psycopg.connect(DATABASE_URL)
 conn.autocommit = True
@@ -364,7 +375,9 @@ async def wyscig_slash(interaction: discord.Interaction):
 async def wyscig_prefix(ctx: commands.Context):
     await ctx.send(WYS_CIG_TEXT)
 
+keep_alive()
 bot.run(TOKEN)
+
 
 
 

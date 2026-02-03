@@ -336,7 +336,7 @@ NUMERY_TEXT = """
 5,7,9,10,18,20,28,30,31,32,34,35,36,38,39,40,42,43,45,46,48,49,50,51,52,53,54,55,56,57,58,59,60,62,64,65,66,68,69,70,73,74,75,76,78,79,81,82,83,84,85,86,89,90,91,92,93,94,95,96,97,98,99
 """
 
-WYS CIG_TEXT = """
+WYS_CIG_TEXT = """
 🏁 Następny wyścig:
 📍 Tor: Silverstone
 📅 Data: 07.02.2026
@@ -356,7 +356,7 @@ async def numery_prefix(ctx: commands.Context):
 # ================= /wyscig =================
 @tree.command(name="wyscig", description="Informacje o wyścigu")
 async def wyscig_slash(interaction: discord.Interaction):
-    await interaction.response.send_message(WYS CIG_TEXT)
+    await interaction.response.send_message(WYS_CIG_TEXT)
 
 # ================= !wyscig =================
 @bot.command(name="wyscig")
@@ -364,3 +364,4 @@ async def wyscig_prefix(ctx: commands.Context):
     await ctx.send(WYS CIG_TEXT)
 
 bot.run(TOKEN)
+

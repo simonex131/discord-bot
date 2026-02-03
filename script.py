@@ -3,6 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import psycopg
 from datetime import datetime, timedelta
+import os
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -364,6 +365,7 @@ async def wyscig_prefix(ctx: commands.Context):
     await ctx.send(WYS_CIG_TEXT)
 
 bot.run(TOKEN)
+
 
 
 

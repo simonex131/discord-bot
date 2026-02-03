@@ -312,12 +312,12 @@ async def admin_warns(
         color=discord.Color.orange()
     )
 
-    for i, (reason, date) in enumerate(rows, start=1):
-        embed.add_field(
-            name=f"Warn #{i}",
-            value=f"📄 {reason}\n🕒 {date.strftime('%Y-%m-%d %H:%M')}",
-            inline=False
-        )
+  for i, (reason, date) in enumerate(rows, start=1):
+    embed.add_field(
+        name=f"Warn #{i}",
+        value=f"📄 {reason}\n🕒 {date}",  # <--- używasz stringa bez .strftime
+        inline=False
+    )
 
     await interaction.response.send_message(embed=embed)
 
@@ -382,6 +382,7 @@ async def wyscig_prefix(ctx: commands.Context):
 
 keep_alive()
 bot.run(TOKEN)
+
 
 
 

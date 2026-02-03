@@ -25,6 +25,8 @@ def keep_alive():
     port = int(os.environ.get("PORT", 8080))  # Render wymaga PORT
     Thread(target=lambda: app.run(host="0.0.0.0", port=port)).start()
 
+def get_conn():
+    return psycopg.connect(DATABASE_URL)
 # ================== DB ==================
 conn = psycopg.connect(DATABASE_URL)
 conn.autocommit = True
@@ -379,6 +381,7 @@ async def wyscig_prefix(ctx: commands.Context):
 
 keep_alive()
 bot.run(TOKEN)
+
 
 
 

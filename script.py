@@ -5,6 +5,7 @@ import psycopg
 from datetime import datetime, timedelta
 import os
 from flask import Flask
+from threading import Thread
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -378,6 +379,7 @@ async def wyscig_prefix(ctx: commands.Context):
 
 keep_alive()
 bot.run(TOKEN)
+
 
 
 

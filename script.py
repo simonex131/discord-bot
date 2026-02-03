@@ -361,7 +361,8 @@ async def wyscig_slash(interaction: discord.Interaction):
 # ================= !wyscig =================
 @bot.command(name="wyscig")
 async def wyscig_prefix(ctx: commands.Context):
-    await ctx.send(WYS CIG_TEXT)
+    await ctx.send(WYS_CIG_TEXT)
 
 bot.run(TOKEN)
+
 

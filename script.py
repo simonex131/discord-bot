@@ -92,7 +92,8 @@ cur.execute("""
 CREATE TABLE IF NOT EXISTS warns (
     user_id BIGINT,
     reason TEXT,
-    time TEXT
+    time TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """)
 
@@ -381,6 +382,7 @@ async def wyscig_prefix(ctx: commands.Context):
 
 keep_alive()
 bot.run(TOKEN)
+
 
 
 

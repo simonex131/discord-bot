@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import psycopg2
+import psycopg
 from datetime import datetime, timedelta
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -12,7 +12,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 # ================== DB ==================
-conn = psycopg2.connect(DATABASE_URL)
+conn = psycopg.connect(DATABASE_URL)
 conn.autocommit = True
 cur = conn.cursor()
 
@@ -364,5 +364,6 @@ async def wyscig_prefix(ctx: commands.Context):
     await ctx.send(WYS_CIG_TEXT)
 
 bot.run(TOKEN)
+
 
 
